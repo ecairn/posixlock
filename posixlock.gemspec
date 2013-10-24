@@ -8,8 +8,8 @@ Gem::Specification.new do |gem|
   gem.version       = Posixlock::VERSION
   gem.authors       = ["Denis Jean"]
   gem.email         = ["denis.jean@ecairn.com"]
-  gem.description   = %q{TODO: Write a gem description}
-  gem.summary       = %q{TODO: Write a gem summary}
+  gem.description   = %q{}
+  gem.summary       = %q{}
   gem.homepage      = ""
 
   gem.files         = `git ls-files`.split($/)
