@@ -16,6 +16,13 @@ class PosilockTest < Test::Unit::TestCase
   end
 
   def test_lockf
+    pid = 0
+
+    Signal.trap("USR2") {
+      assert_equal pid, @file.lockf(File::F_TEST, 0)
+      Process.kill('USR1', pid)
+    }
+
     pid = fork {
       Signal.trap("USR1") { exit }
 
@@ -25,15 +32,18 @@ class PosilockTest < Test::Unit::TestCase
       loop { sleep(1) }
     }
 
-    Signal.trap("USR2") {
-      assert_equal pid, @file.lockf(File::F_TEST, 0)
-      Process.kill('USR1', pid)
-    }
-
     Process.wait
   end
 
   def test_posixlock
+    pid = 0
+
+    Signal.trap("USR2") {
+      assert_equal pid, @file.lockf(File::F_TEST, 0)
+      Process.kill('USR1', pid)
+      assert @file.posixlock(File::LOCK_EX)
+    }
+
     pid = fork {
       Signal.trap("USR1") { exit }
 
@@ -41,12 +51,6 @@ class PosilockTest < Test::Unit::TestCase
 
       Process.kill('USR2', Process.ppid())
       loop { sleep(1) }
-    }
-
-    Signal.trap("USR2") {
-      assert_equal pid, @file.lockf(File::F_TEST, 0)
-      Process.kill('USR1', pid)
-      assert @file.posixlock(File::LOCK_EX)
     }
 
     Process.wait
