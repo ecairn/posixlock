@@ -15,21 +15,27 @@
 
 `File.open('even_an_nfs_mounted_file','r+').lockf File::F_LOCK, 0`
 
-`open('even_an_nfs_mounted_file','r') do |f|
+```
+open('even_an_nfs_mounted_file','r') do |f|
   f.lockf File::F_LOCKR, 42
-end`
+end
+```
 
-`f = open 'foo', 'r+'
+```
+f = open 'foo', 'r+'
 
 if((pid = f.lockf File::F_TEST, 0))
   STDERR.puts "process <#{ pid }> prevents write lock"
-end`
+end
+```
 
-`f = open 'foo', 'r'
+```
+f = open 'foo', 'r'
 
 if((pid = f.lockf File::F_TESTR, 0))
   STDERR.puts "process <#{ pid }> prevents read lock"
-end`
+end
+```
 
 ## DOCS:
 
@@ -64,7 +70,7 @@ end`
 
 ## HISTORY:
 
-  0.0.1: |
+  0.0.1:
     changed behaviour so that, instead of replacing flock, two new methods are
     added: File#posixlock gives access to read/write locks with an interface
     identical to File#flock, and File#lockf gives access to a lockf impl
@@ -72,5 +78,5 @@ end`
     locks.  the biggest difference between the two methods is that lockf will
     throw errors for errno's like EAGAIN, EACCESS, etc.
 
-  0.0.0: |
+  0.0.0:
     initial version
