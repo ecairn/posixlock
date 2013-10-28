@@ -12,7 +12,7 @@ class PosilockTest < Test::Unit::TestCase
 
   def test_lockf
     Tempfile.open('testfile') do |file|
-      pid = 0
+      pid = nil
 
       Signal.trap("USR2") {
         assert_equal pid, file.lockf(File::F_TEST, 0)
@@ -34,7 +34,7 @@ class PosilockTest < Test::Unit::TestCase
 
   def test_posixlock
     Tempfile.open('testfile') do |file|
-      pid = 0
+      pid = nil
 
       Signal.trap("USR2") {
         assert_equal pid, file.lockf(File::F_TEST, 0)
