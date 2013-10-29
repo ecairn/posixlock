@@ -17,7 +17,7 @@ Gem::Specification.new do |gem|
   gem.test_files    = gem.files.grep(%r{^(test|spec|features)/})
   gem.require_paths = ["lib"]
   gem.extensions    = %w[ext/posixlock/extconf.rb]
-  gem.required_ruby_version = '< 1.9'
+  gem.required_ruby_version = '~> 1.9.2'
 
   # tests
   gem.add_development_dependency 'rake-compiler', '~> 0.8.1'
