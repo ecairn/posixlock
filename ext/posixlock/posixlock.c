@@ -2,9 +2,8 @@
 #include "missing/file.h"
 #endif
 
-#include "ruby.h"
-#include "rubyio.h"
-#include "rubysig.h"
+#include "ruby/ruby.h"
+#include "ruby/io.h"
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -54,31 +53,26 @@ static VALUE rb_cFile_F_TESTW;
 #define F_TEST 8
 #endif
 #ifndef F_LOCKR
-#define F_LOCKR 16 
+#define F_LOCKR 16
 #endif
 #ifndef F_LOCKW
-#define F_LOCKW F_LOCK 
+#define F_LOCKW F_LOCK
 #endif
 #ifndef F_TLOCKR
-#define F_TLOCKR 32 
+#define F_TLOCKR 32
 #endif
 #ifndef F_TLOCKW
-#define F_TLOCKW F_TLOCK 
+#define F_TLOCKW F_TLOCK
 #endif
 #ifndef F_TESTR
-#define F_TESTR 64 
+#define F_TESTR 64
 #endif
 #ifndef F_TESTW
-#define F_TESTW F_TEST 
+#define F_TESTW F_TEST
 #endif
 
-
-
 static int
-posixlock (fd, operation)
-     int fd;
-     int operation;
-{
+posixlock (int fd, int operation) {
   struct flock lock;
 
   switch (operation & ~LOCK_NB)
@@ -98,166 +92,174 @@ posixlock (fd, operation)
     }
   lock.l_whence = SEEK_SET;
   lock.l_start = lock.l_len = 0L;
-  return fcntl (fd, (operation & LOCK_NB) ? F_SETLK : F_SETLKW, &lock);
+  return fcntl(fd, (operation & LOCK_NB) ? F_SETLK : F_SETLKW, &lock);
+}
+
+static VALUE
+rb_thread_posixlock(void *data)
+{
+    int *op = data, ret = posixlock(op[0], op[1]);
+
+    return (VALUE)ret;
 }
 
 
 static VALUE
-rb_file_posixlock (obj, operation)
-     VALUE obj;
-     VALUE operation;
-{
-#ifndef __CHECKER__
-  OpenFile *fptr;
-  int ret;
+rb_file_posixlock (VALUE obj, VALUE operation) {
+  rb_io_t *fptr;
+  int op[2], op1;
 
-  rb_secure (2);
-  GetOpenFile (obj, fptr);
+  rb_secure(2);
+  op[1] = op1 = NUM2INT(operation);
+  GetOpenFile(obj, fptr);
+  op[0] = fptr->fd;
 
-  if (fptr->mode & FMODE_WRITABLE)
-    {
-      fflush (GetWriteFile (fptr));
-    }
-retry:
-  TRAP_BEG;
-  ret = posixlock (fileno (fptr->f), NUM2INT (operation));
-  TRAP_END;
-  if (ret < 0)
-    {
-      switch (errno)
-	{
-	case EAGAIN:
-	case EACCES:
+  if (fptr->mode & FMODE_WRITABLE) {
+      rb_io_flush(obj);
+  }
+  while ((int)rb_thread_blocking_region(rb_thread_posixlock, op, RUBY_UBF_IO, 0) < 0) {
+      switch (errno) {
+        case EAGAIN:
+        case EACCES:
 #if defined(EWOULDBLOCK) && EWOULDBLOCK != EAGAIN
-	case EWOULDBLOCK:
+        case EWOULDBLOCK:
 #endif
-	  return Qfalse;
-	case EINTR:
-#if defined(ERESTART)
-	case ERESTART:
-#endif
-	  goto retry;
-	}
-      rb_sys_fail (fptr->path);
-    }
-#endif
+          if (op1 & LOCK_NB) return Qfalse;
+          rb_thread_polling();
+          rb_io_check_closed(fptr);
+          continue;
 
-  return INT2FIX (0);
+        case EINTR:
+#if defined(ERESTART)
+        case ERESTART:
+#endif
+          break;
+
+#define rb_sys_fail_path(path) rb_sys_fail(NIL_P(path) ? 0 : RSTRING_PTR(path))
+        default:
+          rb_sys_fail_path(fptr->pathv);
+      }
+  }
+  return INT2FIX(0);
 }
 
-
-static VALUE
-rb_file_lockf (obj, cmd, len)
-     VALUE obj;
-     VALUE cmd;
-     VALUE len;
-{
-#ifndef __CHECKER__
-  OpenFile *fptr;
+static int
+rb_lockf(int fd, int operation, int len) {
   int ret;
-  int pid;
-  int f_test;
+  int pid = -1;
+  int f_test = 0;
   struct flock lock;
   char msg[1024];
 
-
-  rb_secure (2);
-  GetOpenFile (obj, fptr);
-
-  snprintf (msg, 1024, "path <%s>", fptr->path);
-
-  if (fptr->mode & FMODE_WRITABLE)
-    {
-      fflush (GetWriteFile (fptr));
-    }
-retry:
-  TRAP_BEG;
-  pid = -1;
-  f_test = 0;
   lock.l_whence = SEEK_CUR;
   lock.l_start = 0L;
-  lock.l_len = NUM2INT (len);
-  switch (FIX2INT (cmd))
-    {
-    case F_LOCK:
-      lock.l_type = F_WRLCK;
-      ret = fcntl (fileno (fptr->f), F_SETLKW, &lock);
-      break;
-    case F_LOCKR:
-      lock.l_type = F_RDLCK;
-      ret = fcntl (fileno (fptr->f), F_SETLKW, &lock);
-      break;
-    case F_TLOCK:
-      lock.l_type = F_WRLCK;
-      ret = fcntl (fileno (fptr->f), F_SETLK, &lock);
-      break;
-    case F_TLOCKR:
-      lock.l_type = F_RDLCK;
-      ret = fcntl (fileno (fptr->f), F_SETLK, &lock);
-      break;
-    case F_ULOCK:
-      lock.l_type = F_UNLCK;
-      ret = fcntl (fileno (fptr->f), F_SETLK, &lock);
-      break;
-    case F_TEST:
-      f_test = 1;
-      lock.l_type = F_WRLCK;
-      ret = fcntl (fileno (fptr->f), F_GETLK, &lock);
-      if (ret == 0 && lock.l_type != F_UNLCK)
-	{
-	  pid = lock.l_pid;
-	}
-      break;
-    case F_TESTR:
-      f_test = 1;
-      lock.l_type = F_RDLCK;
-      ret = fcntl (fileno (fptr->f), F_GETLK, &lock);
-      if (ret == 0 && lock.l_type != F_UNLCK)
-	{
-	  pid = lock.l_pid;
-	}
-      break;
-    default:
-      errno = EINVAL;
-      snprintf (msg, 1024, "invalid cmd <%d>", FIX2INT (cmd));
-      ret = -1;
-    }
-  TRAP_END;
-  if (ret < 0)
-    {
-      switch (errno)
-	{
-	case EAGAIN:
-	case EACCES:
-#if defined(EWOULDBLOCK) && EWOULDBLOCK != EAGAIN
-	case EWOULDBLOCK:
-#endif
-	  return Qfalse;
-	case EINTR:
-#if defined(ERESTART)
-	case ERESTART:
-#endif
-	  goto retry;
-	}
-      rb_sys_fail (msg);
-    }
-#endif
+  lock.l_len = len;
+  switch (operation) {
+      case F_LOCK:
+          lock.l_type = F_WRLCK;
+          ret = fcntl(fd, F_SETLKW, &lock);
+          break;
+      case F_LOCKR:
+          lock.l_type = F_RDLCK;
+          ret = fcntl(fd, F_SETLKW, &lock);
+          break;
+      case F_TLOCK:
+          lock.l_type = F_WRLCK;
+          ret = fcntl(fd, F_SETLK, &lock);
+          break;
+      case F_TLOCKR:
+          lock.l_type = F_RDLCK;
+          ret = fcntl(fd, F_SETLK, &lock);
+          break;
+      case F_ULOCK:
+          lock.l_type = F_UNLCK;
+          ret = fcntl(fd, F_SETLK, &lock);
+          break;
+      case F_TEST:
+          f_test = 1;
+          lock.l_type = F_WRLCK;
+          ret = fcntl(fd, F_GETLK, &lock);
+          if (ret == 0 && lock.l_type != F_UNLCK) {
+          	  pid = lock.l_pid;
+	        }
+          break;
+      case F_TESTR:
+          f_test = 1;
+          lock.l_type = F_RDLCK;
+          ret = fcntl(fd, F_GETLK, &lock);
+          if (ret == 0 && lock.l_type != F_UNLCK)	{
+          	  pid = lock.l_pid;
+	        }
+          break;
+      default:
+         errno = EINVAL;
+         snprintf (msg, 1024, "invalid cmd <%d>", FIX2INT(operation));
+         ret = -1;
+  }
 
-  if (f_test)
-    {
-      if (pid != -1)
-	{
-	  return INT2FIX (pid);
-	}
-      else
-	{
-	  return Qnil;
-	}
-    }
-  else
-    {
-      return INT2FIX (0);
-    }
+  if (f_test) {
+      if (pid != -1){
+	        return pid;
+	    } else {
+	        return Qnil;
+	    }
+  } else {
+      return 0;
+  }
+}
+
+static VALUE
+rb_thread_lockf(void *data)
+{
+    int *op = data, ret = rb_lockf(op[0], op[1], op[2]);
+
+    return (VALUE)ret;
+}
+
+static VALUE
+rb_file_lockf (VALUE obj, VALUE cmd, VALUE len) {
+  rb_io_t *fptr;
+  char msg[1024];
+  int op[3], op1, ret;
+
+  rb_secure(2);
+  op[2] = NUM2INT(len);
+  op[1] = op1 = NUM2INT(cmd);
+  GetOpenFile(obj, fptr);
+  op[0] = fptr->fd;
+
+  snprintf(msg, 1024, "path <%ld>", fptr->pathv);
+
+  if (fptr->mode & FMODE_WRITABLE) {
+      rb_io_flush(obj);
+  }
+  while ((ret = (int)rb_thread_blocking_region(rb_thread_lockf, op, RUBY_UBF_IO, 0)) < 0) {
+      switch (errno) {
+	        case EAGAIN:
+	        case EACCES:
+#if defined(EWOULDBLOCK) && EWOULDBLOCK != EAGAIN
+	        case EWOULDBLOCK:
+#endif
+              if (op1 & LOCK_NB) return Qfalse;
+              rb_thread_polling();
+              rb_io_check_closed(fptr);
+              continue;
+
+	        case EINTR:
+#if defined(ERESTART)
+	        case ERESTART:
+#endif
+              break;
+
+          default:
+              rb_sys_fail(msg);
+      }
+  }
+
+  if (ret == Qnil) {
+    return Qnil;
+  }
+  return INT2FIX(ret);
 }
 
 
