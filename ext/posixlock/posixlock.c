@@ -71,12 +71,14 @@ static VALUE rb_cFile_F_TESTW;
 #define F_TESTW F_TEST
 #endif
 
+/*
+ * Locks or unlocks a file according to operation.
+ */
 static int
-posixlock (int fd, int operation) {
+posixlock(int fd, int operation) {
   struct flock lock;
 
-  switch (operation & ~LOCK_NB)
-    {
+  switch(operation & ~LOCK_NB) {
     case LOCK_SH:
       lock.l_type = F_RDLCK;
       break;
@@ -89,23 +91,29 @@ posixlock (int fd, int operation) {
     default:
       errno = EINVAL;
       return -1;
-    }
+  }
   lock.l_whence = SEEK_SET;
   lock.l_start = lock.l_len = 0L;
   return fcntl(fd, (operation & LOCK_NB) ? F_SETLK : F_SETLKW, &lock);
 }
 
+/*
+ * This method is used to have a convenient way to
+ * call posixlock in the rb_thread_blocking_region.
+ */
 static VALUE
 rb_thread_posixlock(void *data)
 {
-    int *op = data, ret = posixlock(op[0], op[1]);
+  int *op = data, ret = posixlock(op[0], op[1]);
 
-    return (VALUE)ret;
+  return (VALUE)ret;
 }
 
-
+/*
+ * This is the entry point when you call posixlock on File.
+ */
 static VALUE
-rb_file_posixlock (VALUE obj, VALUE operation) {
+rb_file_posixlock(VALUE obj, VALUE operation) {
   rb_io_t *fptr;
   int op[2], op1;
 
@@ -115,34 +123,37 @@ rb_file_posixlock (VALUE obj, VALUE operation) {
   op[0] = fptr->fd;
 
   if (fptr->mode & FMODE_WRITABLE) {
-      rb_io_flush(obj);
+    rb_io_flush(obj);
   }
   while ((int)rb_thread_blocking_region(rb_thread_posixlock, op, RUBY_UBF_IO, 0) < 0) {
-      switch (errno) {
-        case EAGAIN:
-        case EACCES:
+    switch (errno) {
+      case EAGAIN:
+      case EACCES:
 #if defined(EWOULDBLOCK) && EWOULDBLOCK != EAGAIN
-        case EWOULDBLOCK:
+      case EWOULDBLOCK:
 #endif
-          if (op1 & LOCK_NB) return Qfalse;
-          rb_thread_polling();
-          rb_io_check_closed(fptr);
-          continue;
+        if (op1 & LOCK_NB) return Qfalse;
+        rb_thread_polling();
+        rb_io_check_closed(fptr);
+        continue;
 
-        case EINTR:
+      case EINTR:
 #if defined(ERESTART)
-        case ERESTART:
+      case ERESTART:
 #endif
-          break;
+        break;
 
 #define rb_sys_fail_path(path) rb_sys_fail(NIL_P(path) ? 0 : RSTRING_PTR(path))
-        default:
-          rb_sys_fail_path(fptr->pathv);
-      }
+      default:
+        rb_sys_fail_path(fptr->pathv);
+    }
   }
   return INT2FIX(0);
 }
 
+/*
+ * Locks or unlocks a file according to operation.
+ */
 static int
 rb_lockf(int fd, int operation, int len) {
   int ret;
@@ -155,67 +166,74 @@ rb_lockf(int fd, int operation, int len) {
   lock.l_start = 0L;
   lock.l_len = len;
   switch (operation) {
-      case F_LOCK:
-          lock.l_type = F_WRLCK;
-          ret = fcntl(fd, F_SETLKW, &lock);
-          break;
-      case F_LOCKR:
-          lock.l_type = F_RDLCK;
-          ret = fcntl(fd, F_SETLKW, &lock);
-          break;
-      case F_TLOCK:
-          lock.l_type = F_WRLCK;
-          ret = fcntl(fd, F_SETLK, &lock);
-          break;
-      case F_TLOCKR:
-          lock.l_type = F_RDLCK;
-          ret = fcntl(fd, F_SETLK, &lock);
-          break;
-      case F_ULOCK:
-          lock.l_type = F_UNLCK;
-          ret = fcntl(fd, F_SETLK, &lock);
-          break;
-      case F_TEST:
-          f_test = 1;
-          lock.l_type = F_WRLCK;
-          ret = fcntl(fd, F_GETLK, &lock);
-          if (ret == 0 && lock.l_type != F_UNLCK) {
-          	  pid = lock.l_pid;
-	        }
-          break;
-      case F_TESTR:
-          f_test = 1;
-          lock.l_type = F_RDLCK;
-          ret = fcntl(fd, F_GETLK, &lock);
-          if (ret == 0 && lock.l_type != F_UNLCK)	{
-          	  pid = lock.l_pid;
-	        }
-          break;
-      default:
-         errno = EINVAL;
-         snprintf (msg, 1024, "invalid cmd <%d>", FIX2INT(operation));
-         ret = -1;
+    case F_LOCK:
+      lock.l_type = F_WRLCK;
+      ret = fcntl(fd, F_SETLKW, &lock);
+      break;
+    case F_LOCKR:
+      lock.l_type = F_RDLCK;
+      ret = fcntl(fd, F_SETLKW, &lock);
+      break;
+    case F_TLOCK:
+      lock.l_type = F_WRLCK;
+      ret = fcntl(fd, F_SETLK, &lock);
+      break;
+    case F_TLOCKR:
+      lock.l_type = F_RDLCK;
+      ret = fcntl(fd, F_SETLK, &lock);
+      break;
+    case F_ULOCK:
+      lock.l_type = F_UNLCK;
+      ret = fcntl(fd, F_SETLK, &lock);
+      break;
+    case F_TEST:
+      f_test = 1;
+      lock.l_type = F_WRLCK;
+      ret = fcntl(fd, F_GETLK, &lock);
+      if (ret == 0 && lock.l_type != F_UNLCK) {
+        pid = lock.l_pid;
+      }
+      break;
+    case F_TESTR:
+      f_test = 1;
+      lock.l_type = F_RDLCK;
+      ret = fcntl(fd, F_GETLK, &lock);
+      if (ret == 0 && lock.l_type != F_UNLCK)	{
+        pid = lock.l_pid;
+      }
+      break;
+    default:
+      errno = EINVAL;
+      snprintf (msg, 1024, "invalid cmd <%d>", FIX2INT(operation));
+      ret = -1;
   }
 
   if (f_test) {
-      if (pid != -1){
-	        return pid;
-	    } else {
-	        return Qnil;
-	    }
+    if (pid != -1){
+      return pid;
+    } else {
+      return Qnil;
+    }
   } else {
-      return 0;
+    return 0;
   }
 }
 
+/*
+ * This method is used to have a convenient way to
+ * call rb_lockf in the rb_thread_blocking_region.
+ */
 static VALUE
 rb_thread_lockf(void *data)
 {
-    int *op = data, ret = rb_lockf(op[0], op[1], op[2]);
+  int *op = data, ret = rb_lockf(op[0], op[1], op[2]);
 
-    return (VALUE)ret;
+  return (VALUE)ret;
 }
 
+/*
+ * This is the entry point when you call lockf on File.
+ */
 static VALUE
 rb_file_lockf (VALUE obj, VALUE cmd, VALUE len) {
   rb_io_t *fptr;
@@ -231,29 +249,29 @@ rb_file_lockf (VALUE obj, VALUE cmd, VALUE len) {
   snprintf(msg, 1024, "path <%ld>", fptr->pathv);
 
   if (fptr->mode & FMODE_WRITABLE) {
-      rb_io_flush(obj);
+    rb_io_flush(obj);
   }
   while ((ret = (int)rb_thread_blocking_region(rb_thread_lockf, op, RUBY_UBF_IO, 0)) < 0) {
-      switch (errno) {
-	        case EAGAIN:
-	        case EACCES:
+    switch (errno) {
+      case EAGAIN:
+      case EACCES:
 #if defined(EWOULDBLOCK) && EWOULDBLOCK != EAGAIN
-	        case EWOULDBLOCK:
+      case EWOULDBLOCK:
 #endif
-              if (op1 & LOCK_NB) return Qfalse;
-              rb_thread_polling();
-              rb_io_check_closed(fptr);
-              continue;
+        if (op1 & LOCK_NB) return Qfalse;
+        rb_thread_polling();
+        rb_io_check_closed(fptr);
+        continue;
 
-	        case EINTR:
+      case EINTR:
 #if defined(ERESTART)
-	        case ERESTART:
+      case ERESTART:
 #endif
-              break;
+        break;
 
-          default:
-              rb_sys_fail(msg);
-      }
+      default:
+        rb_sys_fail(msg);
+    }
   }
 
   if (ret == Qnil) {
