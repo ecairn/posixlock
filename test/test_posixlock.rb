@@ -10,6 +10,12 @@ class PosilockTest < Test::Unit::TestCase
     end
   end
 
+  def test_file_is_not_lock
+    Tempfile.open('testfile') do |file|
+      assert_nil file.lockf(File::F_TEST, 0)
+    end
+  end
+
   def test_lockf
     Tempfile.open('testfile') do |file|
       pid = nil
