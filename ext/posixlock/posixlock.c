@@ -113,7 +113,7 @@ rb_thread_posixlock(void *data)
  * This is the entry point when you call posixlock on File.
  */
 static VALUE
-rb_file_posixlock(VALUE obj, VALUE operation) {
+rb_file_posixlock (VALUE obj, VALUE operation) {
   rb_io_t *fptr;
   int op[2], op1;
 
